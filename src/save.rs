@@ -1,105 +1,101 @@
-use serde::{de::{self, MapAccess, Visitor}, ser::SerializeStruct, Deserialize, Deserializer, Serialize, Serializer};
-use serde_json;
+use serde::{de::{self, Visitor}, Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt;
 
-// Define the Person struct
-#[derive(Debug)]
-struct Person {
-    name: String,
-    age: u8,
-    email: String,
+// Define the Position struct
+#[derive(Debug, PartialEq)]
+struct Position {
+    x: i64,
+    y: i64,
+    z: i64,
 }
 
-// Implement the Serialize trait for Person
-impl Serialize for Person {
+// Implement the Position encoding and decoding
+impl Position {
+    // Encodes the Position into a 64-bit long value
+    fn encode(&self) -> i64 {
+        let x_encoded = ((self.x & 0x3FFFFFF) as i64) << 38;
+        let y_encoded = (self.y & 0xFFF) as i64;
+        let z_encoded = ((self.z & 0x3FFFFFF) as i64) << 12;
+        x_encoded | z_encoded | y_encoded
+    }
+
+    // Decodes a 64-bit long value into a Position
+    fn decode(val: i64) -> Self {
+        let x = (val >> 38) & 0x3FFFFFF;
+        let y = val & 0xFFF;
+        let z = (val >> 12) & 0x3FFFFFF;
+        let x = if x >= (1 << 25) { x - (1 << 26) } else { x }; // sign extend for x
+        let y = if y >= (1 << 11) { y - (1 << 12) } else { y }; // sign extend for y
+        let z = if z >= (1 << 25) { z - (1 << 26) } else { z }; // sign extend for z
+
+        Position { x, y, z }
+    }
+}
+
+// Implement the Serialize trait for Position
+impl Serialize for Position {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        let mut state = serializer.serialize_struct("Person", 3)?;
-        state.serialize_field("name", &self.name)?;
-        state.serialize_field("age", &self.age)?;
-        state.serialize_field("email", &self.email)?;
-        state.end()
+        let encoded = self.encode();
+        serializer.serialize_i64(encoded)
     }
 }
 
-// Implement the Deserialize trait for Person
-impl<'de> Deserialize<'de> for Person {
+// Implement the Deserialize trait for Position, using a raw i64
+impl<'de> Deserialize<'de> for Position {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
-        deserializer.deserialize_map(PersonVisitor)
+        deserializer.deserialize_i64(PositionVisitor)
     }
 }
 
-// Define a visitor for the Person struct
-struct PersonVisitor;
+// Define a visitor for the Position struct to handle i64 deserialization
+struct PositionVisitor;
 
-impl<'de> Visitor<'de> for PersonVisitor {
-    type Value = Person;
+impl<'de> Visitor<'de> for PositionVisitor {
+    type Value = Position;
 
     fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-        formatter.write_str("a map with name, age, and email fields")
+        formatter.write_str("a 64-bit encoded position as an integer")
     }
 
-    fn visit_map<V>(self, mut map: V) -> Result<Self::Value, V::Error>
+    fn visit_i64<E>(self, value: i64) -> Result<Self::Value, E>
     where
-        V: MapAccess<'de>,
+        E: de::Error,
     {
-        let mut name = None;
-        let mut age = None;
-        let mut email = None;
+        Ok(Position::decode(value))
+    }
 
-        while let Some(key) = map.next_key::<String>()? {
-            match key.as_str() {
-                "name" => {
-                    if name.is_some() {
-                        return Err(de::Error::duplicate_field("name"));
-                    }
-                    name = Some(map.next_value()?);
-                }
-                "age" => {
-                    if age.is_some() {
-                        return Err(de::Error::duplicate_field("age"));
-                    }
-                    age = Some(map.next_value()?);
-                }
-                "email" => {
-                    if email.is_some() {
-                        return Err(de::Error::duplicate_field("email"));
-                    }
-                    email = Some(map.next_value()?);
-                }
-                _ => {
-                    let _: serde::de::IgnoredAny = map.next_value()?; // Ignore unknown fields
-                }
-            }
+    // In case we get an unsigned value (u64), handle the conversion
+    fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E>
+    where
+        E: de::Error,
+    {
+        if value > i64::MAX as u64 {
+            Err(E::custom("value exceeds 64-bit signed integer range"))
+        } else {
+            Ok(Position::decode(value as i64))
         }
-
-        let name = name.ok_or_else(|| de::Error::missing_field("name"))?;
-        let age = age.ok_or_else(|| de::Error::missing_field("age"))?;
-        let email = email.ok_or_else(|| de::Error::missing_field("email"))?;
-
-        Ok(Person { name, age, email })
     }
 }
 
 fn main() {
-    let person = Person {
-        name: String::from("Murat"),
-        age: 20,
-        email: String::from("murat@example.com"),
-    };
+    // Example using i64 for x, y, and z
+    let position = Position { x: 18357644, y: 831, z: -20882616 };
+    let encoded_position = position.encode();
+    println!("Encoded Position as number: {}", encoded_position);
 
-    // Serialize the struct to a JSON string
-    let serialized = serde_json::to_string(&person).unwrap();
-    println!("Serialized: {}", serialized);
-
-    // Deserialize the JSON string back to a struct
-    let deserialized: Person = serde_json::from_str(&serialized).unwrap();
+    // Deserialize from the raw i64 number directly
+    let encoded: i64 = 5046110948485792575;
+    let deserialized: Position = serde_json::from_str(&encoded.to_string()).unwrap();
     println!("Deserialized: {:?}", deserialized);
+
+    // Ensure that serialization and deserialization are consistent
+    assert_eq!(position, deserialized);
 }
 
 #[cfg(test)]
@@ -108,23 +104,23 @@ mod tests {
 
     #[test]
     fn test_serialization() {
-        let person = Person {
-            name: String::from("Alice"),
-            age: 30,
-            email: String::from("alice@example.com"),
-        };
-        let serialized = serde_json::to_string(&person).unwrap();
-        assert!(serialized.contains("Alice"));
-        assert!(serialized.contains("30"));
-        assert!(serialized.contains("alice@example.com"));
+        let position = Position { x: 18357644, y: 831, z: -20882616 };
+        let encoded = position.encode();
+        assert_eq!(encoded, 5046110948485792575);
     }
 
     #[test]
     fn test_deserialization() {
-        let json_data = r#"{"name":"Bob","age":25,"email":"bob@example.com"}"#;
-        let deserialized: Person = serde_json::from_str(json_data).unwrap();
-        assert_eq!(deserialized.name, "Bob");
-        assert_eq!(deserialized.age, 25);
-        assert_eq!(deserialized.email, "bob@example.com");
+        let encoded: i64 = 5046110948485792575;
+        let deserialized: Position = serde_json::from_str(&encoded.to_string()).unwrap();
+        assert_eq!(deserialized, Position { x: 18357644, y: 831, z: -20882616 });
+    }
+
+    #[test]
+    fn test_encoding_decoding() {
+        let position = Position { x: 18357644, y: 831, z: -20882616 };
+        let encoded = position.encode();
+        let decoded = Position::decode(encoded);
+        assert_eq!(position, decoded);
     }
 }
