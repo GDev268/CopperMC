@@ -3,7 +3,6 @@ use bytes::{buf, Bytes, BytesMut};
 use serde::de::Visitor;
 
 mod buffer;
-mod deserializer;
 
 fn main() {
     let data: Vec<u8> = vec![
@@ -21,7 +20,8 @@ fn main() {
 
     //println!("{:?}",buffer.read_var_int() == 2147483647 );    
     //println!("{:?}",buffer.read_u8() == 255 );    
-    println!("{:?}",buffer.read_uuid());
+    println!("{:?}",buffer.read_uuid().unwrap());
+
     
     println!("Hello, world!");
 }
