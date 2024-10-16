@@ -1,5 +1,6 @@
 use core::str;
-use std::fmt;
+use std::fmt::{self, Display};
+use serde::de;
 use thiserror::Error;
 
 use bytes::{Buf, BufMut, Bytes, BytesMut};
@@ -11,8 +12,17 @@ static CONTINUE_BIT:u8 = 0x80;
 #[derive(Error,Debug,Clone)]
 pub enum BufferError{
     #[error("Serialization Error: {0}")]
-    SerializerMessage(String)
+    SerializerMessage(String),
+    #[error("Serialization Error: {0}")]
+    DeserializerMessage(String)
 }
+
+impl de::Error for BufferError {
+    fn custom<T: Display>(msg: T) -> Self {
+        Self::DeserializerMessage(msg.to_string())
+    }
+}
+
 
 #[derive(Debug,Clone)]
  pub struct ByteBuffer {
@@ -30,7 +40,7 @@ pub enum BufferError{
         if self.buffer.has_remaining() {
             Ok(self.buffer.get_i8())
         } else {
-            Err(BufferError::SerializerMessage("Failed to read i8!".to_owned()))
+            Err(BufferError::DeserializerMessage("Failed to read i8!".to_owned()))
         }
     }
 
@@ -38,7 +48,7 @@ pub enum BufferError{
         if self.buffer.has_remaining() {
             Ok(self.buffer.get_u8())
         } else {
-            Err(BufferError::SerializerMessage("Failed to read u8!".to_owned()))
+            Err(BufferError::DeserializerMessage("Failed to read u8!".to_owned()))
         }
     }   
     
@@ -60,7 +70,7 @@ pub enum BufferError{
             position += 7;
 
             if position >= 32 {
-                return Err(BufferError::SerializerMessage("VarInt is too big".to_owned()));
+                return Err(BufferError::DeserializerMessage("VarInt is too big".to_owned()));
             }
         }
 
@@ -84,18 +94,22 @@ pub enum BufferError{
             position += 7;
 
             if position >= 64 {
-                return Err(BufferError::SerializerMessage("VarLong is too big".to_owned()));
+                return Err(BufferError::DeserializerMessage("VarLong is too big".to_owned()));
             }
         }
 
         return Ok(value);
     }
     
+    pub fn read_full_string(&mut self) -> Result<String,BufferError> {
+        self.read_string(i16::MAX.into())
+    }
+
     pub fn read_string(&mut self,size:i32) -> Result<String,BufferError> {
         let buf = self.read_var_int()?;
 
         if buf > size {
-            return Err(BufferError::SerializerMessage("String is bigger than the max size!".to_owned()));
+            return Err(BufferError::DeserializerMessage("String is bigger than the max size!".to_owned()));
         }
 
         let data = self.copy_to_bytes(size as usize)?;
@@ -117,7 +131,7 @@ pub enum BufferError{
 
         match Uuid::from_slice(&bytes) {
             Ok(value) => {return Ok(value)},
-            Err(_) => {return Err(BufferError::SerializerMessage("Failed to read UUID".to_owned()))}
+            Err(_) => {return Err(BufferError::DeserializerMessage("Failed to read UUID".to_owned()))}
         }
     }
 
@@ -135,7 +149,7 @@ pub enum BufferError{
         if self.buffer.remaining() >= 2 {
             return Ok(self.buffer.get_i16());
         } else {
-            Err(BufferError::SerializerMessage("Failed to read i16".to_owned()))
+            Err(BufferError::DeserializerMessage("Failed to read i16".to_owned()))
         }
     }
     
@@ -143,7 +157,7 @@ pub enum BufferError{
         if self.buffer.remaining() >= 2 {
             return Ok(self.buffer.get_u16());
         } else {
-            Err(BufferError::SerializerMessage("Failed to read u16".to_owned()))
+            Err(BufferError::DeserializerMessage("Failed to read u16".to_owned()))
         }
     }
 
@@ -151,7 +165,7 @@ pub enum BufferError{
         if self.buffer.remaining() >= 4 {
             return Ok(self.buffer.get_i32());
         } else {
-            Err(BufferError::SerializerMessage("Failed to read i32".to_owned()))
+            Err(BufferError::DeserializerMessage("Failed to read i32".to_owned()))
         }
     }
     
@@ -159,7 +173,7 @@ pub enum BufferError{
         if self.buffer.remaining() >= 4 {
             return Ok(self.buffer.get_u32());
         } else {
-            Err(BufferError::SerializerMessage("Failed to read u32".to_owned()))
+            Err(BufferError::DeserializerMessage("Failed to read u32".to_owned()))
         }
     }
 
@@ -167,7 +181,7 @@ pub enum BufferError{
         if self.buffer.remaining() >= 8 {
             return Ok(self.buffer.get_i64());
         } else {
-            Err(BufferError::SerializerMessage("Failed to read i64".to_owned()))
+            Err(BufferError::DeserializerMessage("Failed to read i64".to_owned()))
         }
     }
 
@@ -175,7 +189,7 @@ pub enum BufferError{
         if self.buffer.remaining() >= 8 {
             return Ok(self.buffer.get_u64());
         } else {
-            Err(BufferError::SerializerMessage("Failed to read u64".to_owned()))
+            Err(BufferError::DeserializerMessage("Failed to read u64".to_owned()))
         }
     }
 
@@ -183,7 +197,7 @@ pub enum BufferError{
         if self.buffer.remaining() >= 4 {
             return Ok(self.buffer.get_f32());
         } else {
-            Err(BufferError::SerializerMessage("Failed to read f32".to_owned()))
+            Err(BufferError::DeserializerMessage("Failed to read f32".to_owned()))
         }
     }
 
@@ -191,7 +205,7 @@ pub enum BufferError{
         if self.buffer.remaining() >= 8 {
             return Ok(self.buffer.get_f64());
         } else {
-            Err(BufferError::SerializerMessage("Failed to read f64".to_owned()))
+            Err(BufferError::DeserializerMessage("Failed to read f64".to_owned()))
         }
     }
 
@@ -199,7 +213,7 @@ pub enum BufferError{
         if self.buffer.len() >= size {
             return Ok(self.buffer.copy_to_bytes(size))
         } else {
-            Err(BufferError::SerializerMessage("Failed to copy bytes!".to_owned()))
+            Err(BufferError::DeserializerMessage("Failed to copy bytes!".to_owned()))
         }
     }
 
@@ -208,7 +222,7 @@ pub enum BufferError{
             self.buffer.copy_from_slice(dst);
             Ok(())
         } else {
-            Err(BufferError::SerializerMessage("Failed to copy from slice!".to_owned()))
+            Err(BufferError::DeserializerMessage("Failed to copy from slice!".to_owned()))
         }
     }
  }

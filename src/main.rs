@@ -3,6 +3,7 @@ use bytes::{buf, Bytes, BytesMut};
 use serde::de::Visitor;
 
 mod buffer;
+mod deserializer;
 
 fn main() {
     let data: Vec<u8> = vec![
