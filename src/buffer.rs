@@ -1,6 +1,6 @@
 use core::str;
 use std::fmt::{self, Display};
-use serde::de;
+use serde::{de, ser};
 use thiserror::Error;
 
 use bytes::{Buf, BufMut, Bytes, BytesMut};
@@ -23,13 +23,19 @@ impl de::Error for BufferError {
     }
 }
 
+impl ser::Error for BufferError {
+    fn custom<T: Display>(msg: T) -> Self {
+        Self::SerializerMessage(msg.to_string())
+    }
+}
+
 
 #[derive(Debug,Clone)]
- pub struct ByteBuffer {
+ pub struct ProtocolBuffer {
     pub buffer: BytesMut
  }
 
- impl ByteBuffer {
+ impl ProtocolBuffer {
     pub fn new(buffer:BytesMut) -> Self {
         Self{
             buffer
@@ -121,6 +127,11 @@ impl de::Error for BufferError {
         return Ok(str::from_utf8(&data).expect("Failed to convert byte data to utf8 string!").to_string());
     }
 
+    pub fn read_option<T>(&mut self, function: impl Fn(&mut Self) -> T) -> Option<T> {
+        Some(function(self))
+    }
+
+
     pub fn read_uuid(&mut self) -> Result<Uuid,BufferError> {
         let high = self.read_u64()?;
         let low = self.read_u64()?;
@@ -209,6 +220,15 @@ impl de::Error for BufferError {
         }
     }
 
+    pub fn write_option<T>(&mut self, value:&Option<T>,function: impl Fn(&mut Self,&T)) {
+        function(self,&value.as_ref().unwrap());
+    }
+
+
+    pub fn write_u8(&mut self,value:u8) {
+        self.buffer.put_u8(value);
+    }
+
     pub fn copy_to_bytes(&mut self,size:usize) -> Result<Bytes, BufferError> {
         if self.buffer.len() >= size {
             return Ok(self.buffer.copy_to_bytes(size))
@@ -240,7 +260,7 @@ mod tests {
 
         let data_buf =  BytesMut::from(&data[..]);
 
-        let mut buffer = ByteBuffer::new(data_buf);
+        let mut buffer = ProtocolBuffer::new(data_buf);
 
         assert_eq!(buffer.read_var_int().unwrap(),-2147483648)
 
@@ -252,7 +272,7 @@ mod tests {
 
         let data_buf =  BytesMut::from(&data[..]);
 
-        let mut buffer = ByteBuffer::new(data_buf);
+        let mut buffer = ProtocolBuffer::new(data_buf);
 
         assert_eq!(buffer.read_var_long().unwrap(),-9223372036854775808);
     }
@@ -264,7 +284,7 @@ mod tests {
 
         let data_buf =  BytesMut::from(&data[..]);
 
-        let mut buffer = ByteBuffer::new(data_buf);
+        let mut buffer = ProtocolBuffer::new(data_buf);
 
         assert_eq!(buffer.read_string(9).unwrap(), "minecraft")
 
@@ -282,7 +302,7 @@ mod tests {
 
         let data_buf =  BytesMut::from(&data[..]);
 
-        let mut buffer = ByteBuffer::new(data_buf);
+        let mut buffer = ProtocolBuffer::new(data_buf);
 
         assert_eq!(buffer.read_uuid().unwrap(),Uuid::from_str("550e8400-e29b-41d4-a716-446655440000").unwrap())
     }
@@ -321,7 +341,7 @@ mod tests {
 
         let data_buf =  BytesMut::from(&data[..]);
 
-        let mut buffer = ByteBuffer::new(data_buf);
+        let mut buffer = ProtocolBuffer::new(data_buf);
 
         assert_eq!(buffer.read_i8().unwrap(),127);
         assert_eq!(buffer.read_u8().unwrap(),128);
@@ -338,7 +358,7 @@ mod tests {
 }
 
 
-impl Default for ByteBuffer {
+impl Default for ProtocolBuffer {
     fn default() -> Self {
         Self {
             buffer: BytesMut::new(),

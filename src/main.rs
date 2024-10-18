@@ -1,9 +1,10 @@
-use buffer::ByteBuffer;
+use buffer::ProtocolBuffer;
 use bytes::{buf, Bytes, BytesMut};
 use serde::de::Visitor;
 
 mod buffer;
 mod deserializer;
+mod serializer;
 
 fn main() {
     let data: Vec<u8> = vec![
@@ -16,13 +17,15 @@ fn main() {
 
     let data_buf =  BytesMut::from(&data[..]);
 
-    let mut buffer = ByteBuffer::new(data_buf);
+    let mut buffer = ProtocolBuffer::new(data_buf);
 
 
     //println!("{:?}",buffer.read_var_int() == 2147483647 );    
     //println!("{:?}",buffer.read_u8() == 255 );    
-    println!("{:?}",buffer.read_uuid().unwrap());
+    //println!("{:?}",buffer.read_uuid().unwrap());
 
-    
+    println!("{:?}",buffer.read_option(|buffer| buffer.read_uuid()));
+
+
     println!("Hello, world!");
 }
