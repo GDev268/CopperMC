@@ -9,7 +9,6 @@ use bytes::{Buf, BytesMut};
 mod server;
 mod client;
 mod packet;
-mod buffer;
 mod reader;
 
 // Read a VarInt from a BytesMut buffer (same as before)

@@ -1,6 +1,5 @@
 use bytes::BytesMut;
-
-use crate::buffer::ProtocolBuffer;
+use crate::reader::ProtocolBufferReaderExt;
 
 pub struct Packet {
     pub id: i32,
