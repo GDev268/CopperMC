@@ -1,13 +1,14 @@
 use std::collections::VecDeque;
 
 use bytes::BytesMut;
+use tokio::io::AsyncWriteExt;
 use tokio::{io::AsyncReadExt, net::TcpStream};
 
 use crate::packet::Packet;
 use crate::reader::ProtocolBufferReaderExt;
 
-struct Client {
-    stream: TcpStream,
+pub struct Client {
+    pub stream: TcpStream,
     packet_queue: VecDeque<Packet>,
 }
 
@@ -19,31 +20,54 @@ impl Client {
         }
     }
 
-    pub async fn get_incoming_packets(&mut self) {
+    //Rreturns an bool depending if the client disconnects
+    pub async fn get_incoming_packets(&mut self) -> bool {
         let mut main_buffer = BytesMut::with_capacity(1024);
         let mut count: u16 = 0;
 
-        if let Ok(size) = self.stream.read_buf(&mut main_buffer).await {
-            if size > 0 {
-                while main_buffer.len() != 0 {
-                    let length = main_buffer.read_var_int().unwrap();
+        match self.stream.read_buf(&mut main_buffer).await {
+            Ok(size) => {
+                if size > 0 {
+                    while main_buffer.len() != 0 {
+                        let length = main_buffer.read_var_int().unwrap();
+    
+                        let mut buffer = main_buffer.split_to(length as usize);
+    
+                        let packet_id = buffer.read_var_int().unwrap();
+    
+                        self.packet_queue.push_back(Packet { id: packet_id, buffer });
+                        count += 1;
+                    }
 
-                    let mut buffer = main_buffer.split_to(length as usize);
+                    println!("Received {:?} incoming packets from {:?}",count,self.stream.local_addr().unwrap());
 
-                    let packet_id = main_buffer.read_var_int().unwrap();
-
-                    self.packet_queue.push_back(Packet { id: packet_id, buffer });
-                    count += 1;
+                    return true;
                 }
+            },
+            Err(_) => {
+                self.test_client_disconnection().await;
             }
         }
 
-        let addr = match self.stream.peer_addr() {
-            Ok(addr) => Ok(addr.to_string()), // Convert the socket address to a string
-            Err(e) => Err(e),
-        }.unwrap();
+        return false;
+    }
 
+    pub async fn test_client_disconnection(&mut self) -> bool {
+        let mut buffer = [0u8; 1];
+        match self.stream.peek(&mut buffer).await {
+            Ok(0) => true,
+            Ok(_) => false,
+            Err(_) => true,
+        }
+    }
 
-        println!("Received {:?} incoming packets from {:?}",count,addr)
+    pub fn process_packets(&mut self) {
+        for i in 0..self.packet_queue.len() {
+            let packet = self.packet_queue.get_mut(i).unwrap();
+            
+            println!("Received packet ID: {:?} | with content: {:?}",packet.id,packet.buffer);
+        }
+
+        self.packet_queue.clear();
     }
 }
