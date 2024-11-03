@@ -6,10 +6,11 @@ use std::error::Error;
 #[derive(Debug)]
 pub enum BufferError {
     DeserializerMessage(String),
+    SerializerMesage(String),
 }
 
-const SEGMENT_BITS: u8 = 0x7F;
-const CONTINUE_BIT: u8 = 0x80;
+const SEGMENT_BITS: i32 = 0x7F;
+const CONTINUE_BIT: i32 = 0x80;
 
 pub trait ProtocolBufferReaderExt {
     fn read_bool(&mut self) -> Result<bool, BufferError>;
@@ -28,6 +29,8 @@ pub trait ProtocolBufferReaderExt {
     fn read_string(&mut self, size: i32) -> Result<String, BufferError>;
     fn read_full_string(&mut self) -> Result<String,BufferError>;
     fn read_uuid(&mut self) -> Result<Uuid, BufferError>;
+    fn read_bitset(&mut self, len:usize) -> Result<Bytes,BufferError>;
+    fn read_fixed_bitset(&mut self, len:usize) -> Result<Bytes,BufferError>;
     fn copy_buffer_to_bytes(&mut self, size: usize) -> Result<Bytes, BufferError>;
     fn copy_buffer_to_slice(&mut self,dst:&mut [u8]) -> Result<(),BufferError>;
 }
@@ -127,7 +130,7 @@ impl ProtocolBufferReaderExt for BytesMut {
 
             value |= ((current_byte & SEGMENT_BITS as u8) as i32) << position;
 
-            if current_byte & CONTINUE_BIT == 0 {
+            if current_byte as i32 & CONTINUE_BIT == 0 {
                 break;
             }
             
@@ -151,7 +154,7 @@ impl ProtocolBufferReaderExt for BytesMut {
 
             value |= ((current_byte & SEGMENT_BITS as u8) as i64) << position;
 
-            if current_byte & CONTINUE_BIT == 0 {
+            if current_byte as i32 & CONTINUE_BIT == 0 {
                 break;
             }
             
@@ -197,6 +200,14 @@ impl ProtocolBufferReaderExt for BytesMut {
             Ok(value) => {return Ok(value)},
             Err(_) => {return Err(BufferError::DeserializerMessage("Failed to read UUID".to_owned()))}
         }
+    }
+
+    fn read_bitset(&mut self, len:usize) -> Result<Bytes,BufferError> {
+        self.copy_buffer_to_bytes(len)
+    }
+    
+    fn read_fixed_bitset(&mut self, len:usize) -> Result<Bytes,BufferError> {
+        self.copy_buffer_to_bytes(len.div_ceil(8))
     }
 
     fn copy_buffer_to_bytes(&mut self, size: usize) -> Result<Bytes, BufferError> {

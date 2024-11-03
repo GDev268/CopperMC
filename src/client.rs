@@ -1,5 +1,3 @@
-use std::collections::VecDeque;
-
 use bytes::BytesMut;
 use tokio::io::AsyncWriteExt;
 use tokio::{io::AsyncReadExt, net::TcpStream};
@@ -9,14 +7,14 @@ use crate::reader::ProtocolBufferReaderExt;
 
 pub struct Client {
     pub stream: TcpStream,
-    packet_queue: VecDeque<Packet>,
+    packet_queue: Vec<Packet>,
 }
 
 impl Client {
     pub fn new(stream: TcpStream) -> Self {
         Self {
             stream,
-            packet_queue: VecDeque::new(),
+            packet_queue: Vec::new(),
         }
     }
 
@@ -35,7 +33,7 @@ impl Client {
     
                         let packet_id = buffer.read_var_int().unwrap();
     
-                        self.packet_queue.push_back(Packet { id: packet_id, buffer });
+                        self.packet_queue.push(Packet { id: packet_id, buffer });
                         count += 1;
                     }
 
@@ -65,7 +63,7 @@ impl Client {
         for i in 0..self.packet_queue.len() {
             let packet = self.packet_queue.get_mut(i).unwrap();
             
-            println!("Received packet ID: {:?} | with content: {:?}",packet.id,packet.buffer);
+            println!("Received packet ID: {:?} with content: {:?}",packet.id,packet.buffer);
         }
 
         self.packet_queue.clear();

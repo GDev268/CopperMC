@@ -1,15 +1,15 @@
 use bytes::{Buf, BytesMut};
 use server::Server;
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::TcpListener;
 use tokio::sync::Mutex as AsyncMutex;
 use tokio::time::{sleep, Duration};
 
 mod client;
 mod packet;
 mod reader;
+mod writer;
 mod server;
 
 #[tokio::main]
@@ -39,10 +39,20 @@ async fn main() {
         }
     });
 
-    loop {
-        let mut locked_server = server.lock().await;
-        locked_server.process_clients().await;
+    // Spawn a task for processing clients independently.
+    let server_clone = Arc::clone(&server);
+    tokio::spawn(async move {
+        loop {
+            let mut locked_server = server_clone.lock().await;
+            locked_server.process_clients().await;
+            // Add a short delay if needed to avoid tight looping.
+            sleep(Duration::from_millis(10)).await;
+        }
+    });
 
-        sleep(Duration::from_millis(50)).await; // Sleep to prevent high CPU usage
+    // Main loop that isn't blocked by client processing.
+    loop {
+        println!("L");
+        sleep(Duration::from_millis(100)).await; // Adjust timing as needed for your application.
     }
 }
