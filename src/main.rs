@@ -1,125 +1,58 @@
-use rand::Rng;
-use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::Mutex;
-use tokio::io::{self, AsyncReadExt};
+use bytes::{Buf, BytesMut};
+use server::Server;
 use std::sync::Arc;
-use std::collections::HashMap;
-use bytes::BytesMut;
-use std::net::SocketAddr;
-use uuid::Uuid; // Use Uuid for unique client IDs
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpListener;
+use tokio::sync::Mutex as AsyncMutex;
+use tokio::time::{sleep, Duration};
 
-fn generate_random_uuid() -> Uuid {
-    let mut rng = rand::thread_rng();
-    // Generate 16 random bytes
-    let random_bytes: [u8; 16] = rng.gen();
-
-    // Create a UUID with the random bytes
-    Uuid::from_bytes(random_bytes)
-}
-
-// Server struct to hold connected clients
-struct Server {
-    clients: Mutex<HashMap<Uuid, (SocketAddr, BytesMut)>>,
-}
-
-impl Server {
-    fn new() -> Self {
-        Server {
-            clients: Mutex::new(HashMap::new()),
-        }
-    }
-
-    async fn add_client(&self, id: Uuid, addr: SocketAddr, buffer: BytesMut) {
-        let mut clients = self.clients.lock().await;
-        clients.insert(id, (addr, buffer));
-    }
-
-    async fn remove_client(&self, id: &Uuid) {
-        let mut clients = self.clients.lock().await;
-        clients.remove(id);
-        println!("Client {} removed", id);
-    }
-
-    async fn print_packets(&self) {
-        let mut clients = self.clients.lock().await;
-        for (id, (addr, buffer)) in clients.iter_mut() {
-            if buffer.len() > 0 {
-                println!("Client {} ({}): {:?}", id, addr, buffer);
-                buffer.clear();
-            }
-
-        }
-    }
-
-    async fn print_all_clients(&self) {
-        // This method is called to print all clients in a synchronized manner
-        self.print_packets().await;
-    }
-}
-
-async fn handle_client(server: Arc<Server>, mut stream: TcpStream, addr: SocketAddr) {
-    let mut buffer = BytesMut::with_capacity(1024); // Adjust buffer size as needed
-    let client_id = generate_random_uuid();
-    
-    // Add client initially
-    server.add_client(client_id, addr, buffer.clone()).await;
-
-    loop {
-        let mut temp_buffer = [0u8; 512]; // Temporary buffer for reading
-        match stream.read(&mut temp_buffer).await {
-            Ok(0) => {
-                // Connection was closed by the client
-                println!("Client {} disconnected", addr);
-                break;
-            }
-            Ok(bytes_read) => {
-                // Extend the buffer with the read data
-                buffer.extend_from_slice(&temp_buffer[..bytes_read]);
-                // Add/Update client in the server
-                server.add_client(client_id, addr, buffer.clone()).await;
-
-                // Here we can call a method to print all clients if needed
-                // However, we will keep it outside to avoid clutter in this function
-            }
-            Err(e) => {
-                eprintln!("Error reading from client {}: {}", addr, e);
-                break;
-            }
-        }
-    }
-
-    // Remove client when done
-    server.remove_client(&client_id).await;
-}
+mod client;
+mod packet;
+mod reader;
+mod writer;
+mod server;
 
 #[tokio::main]
-async fn main() -> io::Result<()> {
-    let listener = TcpListener::bind("127.0.0.1:25565").await?;
-    println!("Server running on 127.0.0.1:25565");
+async fn main() {
+    let listener = TcpListener::bind("127.0.0.1:25565")
+        .await
+        .expect("Could not bind to address");
+    let server = Arc::new(AsyncMutex::new(Server::new()));
 
-    let server = Arc::new(Server::new());
+    println!("Server started on 127.0.0.1:25565");
 
-    // Spawn a separate task to periodically print clients
-    {
-        let server = Arc::clone(&server);
-        tokio::spawn(async move {
-            loop {
-                server.print_all_clients().await; // Print all clients every 5 seconds
-            }
-        });
-    }
-
-    loop {
-        match listener.accept().await {
-            Ok((stream, addr)) => {
-                let server = Arc::clone(&server);
-                tokio::spawn(async move {
-                    handle_client(server, stream, addr).await;
-                });
-            }
-            Err(e) => {
-                eprintln!("Connection failed: {}", e);
+    let server_clone = Arc::clone(&server);
+    tokio::spawn(async move {
+        loop {
+            match listener.accept().await {
+                Ok((stream, _)) => {
+                    let server = Arc::clone(&server_clone);
+                    tokio::spawn(async move {
+                        let mut locked_server = server.lock().await;
+                        locked_server.add_client(stream);
+                    });
+                }
+                Err(e) => {
+                    println!("Failed to accept connection: {}", e);
+                }
             }
         }
+    });
+
+    // Spawn a task for processing clients independently.
+    let server_clone = Arc::clone(&server);
+    tokio::spawn(async move {
+        loop {
+            let mut locked_server = server_clone.lock().await;
+            locked_server.process_clients().await;
+            // Add a short delay if needed to avoid tight looping.
+            sleep(Duration::from_millis(10)).await;
+        }
+    });
+
+    // Main loop that isn't blocked by client processing.
+    loop {
+        println!("L");
+        sleep(Duration::from_millis(100)).await; // Adjust timing as needed for your application.
     }
 }
