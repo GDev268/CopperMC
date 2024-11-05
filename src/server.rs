@@ -48,7 +48,5 @@ impl Server {
 
             client.process_packets();
         }
-
-
     }
 }

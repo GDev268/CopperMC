@@ -63,7 +63,16 @@ impl Client {
         for i in 0..self.packet_queue.len() {
             let packet = self.packet_queue.get_mut(i).unwrap();
             
+            //let protocol_version = packet.buffer.read_var_int().unwrap();
+
+            //let server_address = packet.buffer.read_string(255).unwrap();
+
+            //let server_port = packet.buffer.read_u16().unwrap();
+
+            //let next_state = packet.buffer.read_var_int().unwrap();
+
             println!("Received packet ID: {:?} with content: {:?}",packet.id,packet.buffer);
+            //println!("Handshake info: \nProtocol Version: {:?}\nServer address: {:?}\nServer Port: {:?}\nNext State: {:?}",protocol_version,server_address,server_port,next_state);
         }
 
         self.packet_queue.clear();
